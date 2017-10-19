@@ -5,9 +5,12 @@
 #include <unistd.h>
 #include <strings.h>
 #include <string.h>
+#include <fstream>
 #include <iostream>
+//#include <streambuf>
+#include "shell.cc"
 
-#define SERV_TCP_PORT 5566
+#define SERV_TCP_PORT 9999
 
 using namespace std;
 
@@ -17,7 +20,7 @@ int main()
 	int sock = socket(PF_INET, SOCK_STREAM, 0);
 	if(sock < 0)
 	{
-		cout << "Error not open socket" << endl;
+		cout << "Error: Cannot open socket" << endl;
 		return 0;
 	}
 	bzero((char *) &serv_addr, sizeof(serv_addr));
@@ -27,7 +30,7 @@ int main()
 	int bin = bind(sock, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
 	if(bin < 0)
 	{
-		cout << "server: can't bind local address" << endl;
+		cout << "Error: Can't bind local address" << endl;
 		return 0;
 	}
 	listen(sock, 5);
@@ -38,13 +41,20 @@ int main()
 		int child;
 		if((child = fork()) < 0)
 		{
-			cout << "server: accept error" << endl;
+			cout << "Error: Accept error" << endl;
 			return 0;
 		}
 		else if(child == 0) 
 		{
-			cout << "suc" << endl;
 			close(sock);
+			process_handler(newsock);
+/*			cout << "Logger: Redirected to " + newsock << endl;
+			write(newsock, "hello\n", sizeof("hello\n"));
+			cout << "Logger: \"" << newsock << "\": welcoming message" << endl;
+			char c[1000] = {};
+			read(newsock, (void *)c, sizeof(c));
+			cout << c << endl;
+*/
 			exit(0);
 		}
 		close(newsock);
