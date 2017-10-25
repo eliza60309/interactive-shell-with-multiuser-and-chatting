@@ -28,14 +28,20 @@ int process_handler(int sock)
 		if(size == 0);
 		else
 		{
-			int i = 0;
-			//write(sock, c, size);
+			for(int i = 0; c[i] != '\0'; i++)
+			{
+				if(c[i] == '/')
+				{
+					cout << "Illegal character /" << endl;
+					break;
+				}
+			}
+			char *tok = NULL;
+			tok = strtok(c, " \n");
 			while(1)
 			{
-				i = check_integrity(c, 0, size);
-				if(i == -1)return -2;
-				//i == size end of line
-				if(i != size)
+				cout << tok << endl;
+				if((tok = strtok(NULL, " \n\0")) == NULL)break;
 			}
 		}
 	}
@@ -72,7 +78,7 @@ int check_integrity(char *cstr, int begin, int size)
 	{
 		if(cstr[i] == '|')return i;
 		else if(cstr[i] == '/')return -2;
-		if(i == size)return 0;
+		if(i == size)break;
 	}
 	return size;
 }
