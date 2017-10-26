@@ -10,12 +10,13 @@
 //#include <streambuf>
 #include "shell.cc"
 
-#define SERV_TCP_PORT 9999
+#define SERV_TCP_PORT 9487
 
 using namespace std;
 
 int main()
 {
+	int serv_tcp_port = SERV_TCP_PORT;
 	struct sockaddr_in cli_addr, serv_addr;
 	int sock = socket(PF_INET, SOCK_STREAM, 0);
 	if(sock < 0)
@@ -26,13 +27,15 @@ int main()
 	bzero((char *) &serv_addr, sizeof(serv_addr));
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serv_addr.sin_port = htons(SERV_TCP_PORT);
-	int bin = bind(sock, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
-	if(bin < 0)
+	while(1)
 	{
-		cout << "Error: Can't bind local address" << endl;
-		return 0;
+		serv_addr.sin_port = htons(serv_tcp_port);
+		int bin = bind(sock, (struct sockaddr *) &serv_addr, sizeof(serv_addr));
+		if(bin >= 0)break;
+//		cout << "Error: Can't bind " << serv_tcp_port << endl;
+		serv_tcp_port++;
 	}
+	cout << "Bind port: " << serv_tcp_port << endl;
 	listen(sock, 5);
 	while(1)
 	{
