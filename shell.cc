@@ -113,7 +113,7 @@ int process_handler(int sock)
 			rawargs.clear();
 		}
 
-		bool first = 1;
+		int ln = 0;
 		while(1)
 		{
 			if(cmd_defined[cur] == 0)break;
@@ -125,7 +125,9 @@ int process_handler(int sock)
 			}
 			if(cmd_args[cur][0] == "printenv")
 			{
-				string env = getenv(cmd_args[cur][1].c_str());
+				char *st = getenv(cmd_args[cur][1].c_str());
+				
+				string env = (st == NULL? "": st); 
 				env = cmd_args[cur][1] + "=" + env + "\n";
 				write(sock, env.c_str(), env.size());
 				cur++;
@@ -142,19 +144,22 @@ int process_handler(int sock)
 			if(cmd_args[cur].size() >= 2 && cmd_args[cur][cmd_args[cur].size() - 2] == ">")
 			{
 				file = cmd_args[cur][cmd_args[cur].size() - 1];
-				cout << "file redirection: " << file << endl;
 				cmd_args[cur].pop_back();
 				cmd_args[cur].pop_back();
 				cmd_out[cur] = -1;
 			}
 			for(int i = 0; i < cmd_args[cur].size(); i++)argc.emplace_back(const_cast<char *>(cmd_args[cur][i].c_str()));
 			argc.push_back(NULL);
-			cout << "Execute(" << cur << "): ";
-			for(int i = 0; i < argc.size() - 1; i++)cout << argc[i] << " ";
-			if(cmd_out[cur] < 0)cout << "=>(file) " << file;
-			else if(cmd_out[cur] == -2)cout << "=>(stdout)";
-			else cout << "=>(pipe) " << cmd_out[cur];
-			cout << endl;
+			if(ln <= 10)
+			{
+				cout << "Execute(" << cur << "): ";
+				for(int i = 0; i < argc.size() - 1; i++)cout << argc[i] << " ";
+				if(cmd_out[cur] == -1)cout << "=>(file) " << file;
+				else if(cmd_out[cur] == -2)cout << "=>(stdout)";
+				else cout << "=>(pipe) " << cmd_out[cur];
+				cout << endl;
+			}
+			if(ln == 10)cout << "  ..." << endl;
 			int shmid = shmget(0, sizeof(int), IPC_CREAT | 0666);
 			int *ptr = (int *)shmat(shmid, NULL, 0);
 			ptr[0] = 1;
@@ -207,7 +212,7 @@ int process_handler(int sock)
 			if(!ptr[0]) 
 			{
 				cout << "Exec error: " << argc.data()[0] << endl;
-				if(!first) save = cmd_in[cur] + cmd_in[cur + 1];
+				if(ln)save = cmd_in[cur] + cmd_in[cur + 1];
 				for(int i = 0; i < 5000; i++)
 				{
 					if(cmd_tmp[i])
@@ -227,10 +232,10 @@ int process_handler(int sock)
 			cmd_stdin[cur] = 1;
 			cmd_tmp[cur] = 0;
 			if(ptr[0])cur = (cur + 1) % 5000;
-			else if(first)cur = (cur + 1) % 5000;
+			else if(!ln)cur = (cur + 1) % 5000;
 			shmdt(ptr);
 			shmctl(shmid, IPC_RMID, NULL);
-			first = 0;
+			ln++;
 		}
 	}
 }
