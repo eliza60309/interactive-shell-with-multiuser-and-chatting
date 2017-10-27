@@ -1,0 +1,38 @@
+****************************************
+** Welcome to the information server. **
+****************************************
+% printenv PATH
+/usr/local/bin:/usr/bin:/bin
+% ls -S
+a.out
+shell.cc
+testing_data.zip
+ras
+testing_data
+server.cc
+commands.rar
+greet
+ls.txt
+% setenv PATH .
+Exec error: setenv
+% printenv PATH
+/usr/local/bin:/usr/bin:/bin
+% ls
+a.out
+commands.rar
+greet
+ls.txt
+ras
+server.cc
+shell.cc
+testing_data
+testing_data.zip
+% setenv PATH bin
+Exec error: setenv
+% setenv LANG en_US
+Exec error: setenv
+% printenv LANG
+en_US.UTF-8
+% date
+Fri Oct 27 07:12:16 CST 2017
+% exit

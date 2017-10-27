@@ -83,10 +83,9 @@ int process_handler(int sock)
 				}
 				if(cnt == 0)cnt = 1;
 				cmd_args[(fur + cur) % 1000] = rawargs;
-				cmd_out[(fur + cur) % 1000] = cnt;
+				cmd_out[(fur + cur) % 1000] = (cnt + fur + cur) % 1000;
 				cmd_defined[(fur + cur) % 1000] = 1;
 				cmd_tmp[(fur + cur) % 1000] = 1;
-				cmd_stdin[(fur + cur + cnt) % 1000] = 0;
 				rawargs.clear();
 				fur++;
 				cmds++;
@@ -121,6 +120,7 @@ int process_handler(int sock)
 		cout << endl;*/
 
 		//executing
+		bool suc = 0;
 		while(1)
 		{
 			if(cmd_defined[cur] == 0)break;
@@ -129,22 +129,33 @@ int process_handler(int sock)
 			pipe(tochild);
 			pipe(fromchild);
 			vector<char *>argc;
+			string file = "";
+			if(cmd_args[cur][cmd_args[cur].size() - 2] == string(">"))
+			{
+				file = cmd_args[cur][cmd_args[cur].size() - 1];
+				cout << "file redirection: " << file << endl;
+				cmd_args[cur].pop_back();
+				cmd_args[cur].pop_back();
+				cmd_out[cur] = -1;
+			}
 			for(int i = 0; i < cmd_args[cur].size(); i++)argc.emplace_back(const_cast<char *>(cmd_args[cur][i].c_str()));
 			argc.push_back(NULL);
 			cout << "Execute(" << cur << "): ";
 			for(int i = 0; i < argc.size() - 1; i++)cout << argc[i] << " ";
+			if(cmd_out[cur] < 0)cout << "=>(file) " << file;
+			else if(cmd_out[cur] == 0)cout << "=>(stdout)";
+			else cout << "=>(pipe) " << cmd_out[cur];
 			cout << endl;
-			//char pipebuffer_in[1000] = {};
-			//char pipebuffer_out[1000] = {};
+	//		char pipebuffer_in[10000] = {};
+			int shmid = shmget(0, sizeof(int), IPC_CREAT | 0666);
+			int *ptr = (int *)shmat(shmid, NULL, 0);
+			ptr[0] = 1;
 			int p = fork();
 			if(p == -1)
 			{
 				cout << "NO FORK" << endl;
 				return -1;
 			}
-			int shmid = shmget(0, sizeof(int), IPC_CREAT | 0666);
-			int *ptr = (int *)shmat(shmid, NULL, 0);
-			ptr[0] = 1;
 			if(p == 0)
 			{
 				close(tochild[1]);
@@ -156,16 +167,37 @@ int process_handler(int sock)
 					cout << "Exec error: " << argc.data()[0] << endl;
 					ptr[0] = 0;
 					shmdt(ptr);
-					exit(1);
+					return 0;
 				}
 			}
-			wait(NULL);
-			if(!ptr)
+			close(tochild[0]);
+			close(fromchild[1]);
+			write(tochild[1], cmd_in[cur].c_str() , cmd_in[cur].size());
+			close(tochild[1]);
+			int pid;
+			wait(&pid);
+			char pipebuffer[10000] = {};
+			read(fromchild[0], pipebuffer, 9999);
+			string s(pipebuffer);
+			cout << "input:" << cmd_in[cur] << endl;
+			cout << "output:" << s << endl;
+			//cout << "s" << s << endl;
+			if(cmd_out[cur] == 0)write(sock, s.c_str(), s.size());
+	//		else if(cmd_out[cur] == -1)
+	//		{
+	//			cout << "file redirection? ok, to " << file << endl;
+	//		}
+			else cmd_in[cmd_out[cur]] = pipebuffer;
+			close(fromchild[0]);
+			if(ptr[0])suc = 1;
+			else 
 			{
 				for(int i = 0; i < 1000; i++)
 				{
 					if(cmd_tmp[i])
 					{
+						if(suc)cur--;
+						if(cur < 0)cur = 0;
 						cmd_args[i].clear();
 						cmd_defined[i] = 0;
 						cmd_out[i] = 0;
