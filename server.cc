@@ -14,8 +14,21 @@
 
 using namespace std;
 
+void waitfor(int sig)
+{
+	int wstat;
+	int pid = wait(&wstat);
+}
+
+//void abortion(int sig)
+//{
+//	abort();
+//}
+
 int main()
 {
+	signal(SIGCHLD, waitfor);
+//	signal(SIGINT, abortion);
 	int serv_tcp_port = SERV_TCP_PORT;
 	struct sockaddr_in cli_addr, serv_addr;
 	int sock = socket(PF_INET, SOCK_STREAM, 0);
@@ -51,16 +64,11 @@ int main()
 		{
 			close(sock);
 			process_handler(newsock);
-/*			cout << "Logger: Redirected to " + newsock << endl;
-			write(newsock, "hello\n", sizeof("hello\n"));
-			cout << "Logger: \"" << newsock << "\": welcoming message" << endl;
-			char c[1000] = {};
-			read(newsock, (void *)c, sizeof(c));
-			cout << c << endl;
-*/
 			exit(0);
 		}
+
 		close(newsock);
 	}
 }
+
 

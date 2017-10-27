@@ -62,7 +62,7 @@ int main(int argc,char *argv[])
   exit(1);
  }
 
- sleep(1);     //waiting for welcome messages
+ //sleep(1);     //waiting for welcome messages
  
  end=0;
  while(1)
