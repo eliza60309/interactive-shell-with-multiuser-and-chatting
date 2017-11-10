@@ -89,6 +89,7 @@ int process_handler(int sock)
 					cnt += toks[i][j] - '0';
 				}
 				if(cnt == 0)cnt = 1;
+				else cnt *= 2;
 				cmd_args[(fur + cur) % 5000] = rawargs;
 				cmd_out[(fur + cur) % 5000] = (cnt + fur + cur) % 5000;
 //				cout << "//pipe" << (fur + cur + cnt) % 5000 << endl;
@@ -99,6 +100,18 @@ int process_handler(int sock)
 				cmds++;
 				continue;
 			}
+	/*		else if(toks[i][0] == '&' && toks[i][1] == '&')
+			{
+				cout << "&&" << endl;
+				cmd_args[(fur + cur) % 5000] = rawargs;
+				cmd_out[(fur + cur) % 5000] = -2;
+				cmd_defined[(fur + cur) % 5000] = 1;
+				cmd_tmp[(fur + cur) % 5000] = 1;
+				rawargs.clear();
+				fur++;
+				cmds++;
+				continue;
+			}*/
 			rawargs.push_back(toks[i]);
 		}
 		if(!rawargs.empty())
@@ -192,14 +205,44 @@ int process_handler(int sock)
 			close(tochild[1]);
 	//		int pid;
 	//		wait(&pid);
-			char pipebuffer[10000] = {};
-			char errbuffer[10000] = {};
-			read(fromchild[0], pipebuffer, 9999);
-			read(errchild[0], errbuffer, 9999);
+			//char pipebuffer[100000] = {};
+			//char errbuffer[100000] = {};
+			char errbuffer[100000] = {};
+			char pipebuffer[100000] = {};
+			//string s;
+			//string err;
+			read(fromchild[0], pipebuffer, 100000);
+			read(errchild[0], errbuffer, 100000);
 			string s(pipebuffer);
 			string err(errbuffer);
+			/*do
+			{
+				string ttt(pipebuffer);
+				s += ttt;
+			}
+			while(read(fromchild[0], pipebuffer, 100000));
+
+			do
+			{
+		//		char errbuffer[10000] = {};
+				string ttt(errbuffer);
+				err += ttt;
+			}
+			while(read(fromchild[1], errbuffer, 10000));
+		//	read(errchild[0], errbuffer, 10000);
+			//string s(pipebuffer);*/
 			write(sock, err.c_str(), err.size());
-			if(cmd_out[cur] == -2)write(sock, s.c_str(), s.size());
+			//write(sock, s.c_str(), s.size());
+			if(cmd_out[cur] == -2)
+			{
+				int i = 0;
+				while(1)
+				{
+					int k = write(sock, s.c_str() + i, s.size());
+					i += k;
+					if(i == s.size())break;
+				}
+			}
 			else if(cmd_out[cur] == -1)
 			{
 				fstream stream;
