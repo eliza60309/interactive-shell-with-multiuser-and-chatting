@@ -16,17 +16,42 @@
 
 using namespace std;
 
-int process_handler(int sock);
-int rl(int sock, char *cstr);
-
-int process_handler(int sock)
+class indiv
 {
-	cout << "Client connected: PID = " << getpid() << endl;
-	string greet = 	"****************************************\n"
-					"** Welcome to the information server. **\n"
-					"****************************************\n";
-	write(sock, greet.c_str(), greet.length());
-	vector<vector<string> > cmd_args(5000, vector<string>());
+	public: 
+	vector<vector<string> > cmd_args;
+	vector<int> cmd_out;
+	vector<string> cmd_in;
+	vector<bool> cmd_defined;
+	vector<bool> cmd_tmp;
+	vector<bool> cmd_stdin;
+	//string env;
+	vector<string> env_var;
+	vector<string> env_value;
+	string rawcmd;
+	int cur;
+	indiv()
+	{
+		cmd_args = vector<vector<string> >(5000, vector<string>());
+		cmd_out = vector<int>(5000, -2);
+		cmd_in = vector<string>(5000, string());
+		cmd_defined = vector<bool>(5000, 0);
+		cmd_tmp = vector<bool>(5000, 0);
+		cmd_stdin = vector<bool>(5000, 1);
+		env_var = vector<string>(1, "PATH");
+		env_value = vector<string>(1, "bin:.");
+		rawcmd = string();
+		cur = 0;
+	}
+};
+
+int process_handler(int sock, indiv &user, void *ptr);
+int rl(int sock, char *cstr);
+int greeting(int sock);
+
+int process_handler(int sock, indiv &user, void *ptr)
+{
+/*	vector<vector<string> > cmd_args(5000, vector<string>());
 	vector<int> cmd_out(5000, -2);
 	vector<string> cmd_in(5000, string());
 	vector<bool> cmd_defined(5000, 0);
@@ -35,39 +60,47 @@ int process_handler(int sock)
 	chdir("ras");
 	clearenv();
 	setenv("PATH", "bin:.", 1);
-	//setenv("PATH", );
-	int cur = 0;
-	while(1)//per line operation
-	{	
+	//setenv("PATH", );*/
+	vector<vector<string> > &cmd_args = user.cmd_args;
+	vector<int> &cmd_out = user.cmd_out;
+	vector<string> &cmd_in = user.cmd_in;
+	vector<bool> &cmd_defined = user.cmd_defined;
+	vector<bool> &cmd_tmp = user.cmd_tmp;
+	vector<bool> &cmd_stdin = user.cmd_stdin;
+	vector<string> &env_var = user.env_var;
+	vector<string> &env_value = user.env_value;
+	chdir("ras");
+	clearenv();
+	//setenv("PATH", "bin:.", 1);
+	for(int i = 0; i < env_var.size(); i++)setenv(env_var[i].c_str(), env_value[i].c_str(), 1);
+	int &cur = user.cur;
+//	while(1)//per line operation
+//	{	
 		int forks = 0;
 		char c[10000] = {};
 		write(sock, "% ", 2);
 		int size = rl(sock, c);
-		if(size == -1)return -1;
-		if(size == 0)continue;
-		int flag = 0;
+		if(size == -1)return 0;
+		if(size == 0)return 1;
 		for(int i = 0; c[i] != '\0'; i++)
 		{
 			if(c[i] == '/')
 			{
 				cout << "Illegal character /" << endl;
-				flag = 1;
-				break;
+				return 1;
 			}
 			if(c[i] < 0)
 			{
-	//			flag = 1;
 				cout << "Client Released: PID = " << getpid() << endl;
 				return 0;
 			}
 		}
-		if(flag)continue;
 		vector<string> toks;
 		char *tok = NULL;
-		tok = strtok(c, " \r\n");
-		if(tok == NULL)continue;
+		tok = strtok(c, " \r\n\0");
+		if(tok == NULL)return 1;
 		do toks.push_back(string(tok));
-		while((tok = strtok(NULL, " \r\n")) != NULL);
+		while((tok = strtok(NULL, " \r\n\0")) != NULL);
 		string tmp;
 		vector<string> rawargs;
 		int fur = 0;
@@ -89,10 +122,8 @@ int process_handler(int sock)
 					cnt += toks[i][j] - '0';
 				}
 				if(cnt == 0)cnt = 1;
-				else cnt *= 2;
 				cmd_args[(fur + cur) % 5000] = rawargs;
 				cmd_out[(fur + cur) % 5000] = (cnt + fur + cur) % 5000;
-//				cout << "//pipe" << (fur + cur + cnt) % 5000 << endl;
 				cmd_defined[(fur + cur) % 5000] = 1;
 				cmd_tmp[(fur + cur) % 5000] = 1;
 				rawargs.clear();
@@ -100,23 +131,10 @@ int process_handler(int sock)
 				cmds++;
 				continue;
 			}
-	/*		else if(toks[i][0] == '&' && toks[i][1] == '&')
-			{
-				cout << "&&" << endl;
-				cmd_args[(fur + cur) % 5000] = rawargs;
-				cmd_out[(fur + cur) % 5000] = -2;
-				cmd_defined[(fur + cur) % 5000] = 1;
-				cmd_tmp[(fur + cur) % 5000] = 1;
-				rawargs.clear();
-				fur++;
-				cmds++;
-				continue;
-			}*/
 			rawargs.push_back(toks[i]);
 		}
 		if(!rawargs.empty())
 		{
-//			cout << "////stdout" << endl;
 			cmd_args[(fur + cur) % 5000] = rawargs;
 			cmd_out[(fur + cur) % 5000] = -2;
 			cmd_defined[(fur + cur) % 5000] = 1;
@@ -125,7 +143,6 @@ int process_handler(int sock)
 			cmds++;
 			rawargs.clear();
 		}
-
 		int ln = 0;
 		while(1)
 		{
@@ -133,6 +150,21 @@ int process_handler(int sock)
 			if(cmd_args[cur][0] == "setenv")
 			{
 				setenv(cmd_args[cur][1].c_str(), cmd_args[cur][2].c_str(), 1);
+				int pos = -1;
+				for(int i = 0; i < env_var.size(); i++)
+				{
+					if(cmd_args[cur][1] == env_var[i])
+					{
+						pos = i;
+						break;
+					}
+				}
+				if(pos == -1)
+				{
+					env_var.push_back(cmd_args[cur][1]);
+					env_value.push_back(cmd_args[cur][2]);
+				}
+				else env_value[pos] = cmd_args[cur][2];
 				cur++;
 				break;
 			}
@@ -180,7 +212,7 @@ int process_handler(int sock)
 			if(p == -1)
 			{
 				cout << "NO FORK" << endl;
-				return -1;
+				return 0;
 			}
 			if(p == 0)
 			{
@@ -203,36 +235,13 @@ int process_handler(int sock)
 			close(errchild[1]);
 			write(tochild[1], cmd_in[cur].c_str() , cmd_in[cur].size());
 			close(tochild[1]);
-	//		int pid;
-	//		wait(&pid);
-			//char pipebuffer[100000] = {};
-			//char errbuffer[100000] = {};
 			char errbuffer[100000] = {};
 			char pipebuffer[100000] = {};
-			//string s;
-			//string err;
 			read(fromchild[0], pipebuffer, 100000);
 			read(errchild[0], errbuffer, 100000);
 			string s(pipebuffer);
 			string err(errbuffer);
-			/*do
-			{
-				string ttt(pipebuffer);
-				s += ttt;
-			}
-			while(read(fromchild[0], pipebuffer, 100000));
-
-			do
-			{
-		//		char errbuffer[10000] = {};
-				string ttt(errbuffer);
-				err += ttt;
-			}
-			while(read(fromchild[1], errbuffer, 10000));
-		//	read(errchild[0], errbuffer, 10000);
-			//string s(pipebuffer);*/
 			write(sock, err.c_str(), err.size());
-			//write(sock, s.c_str(), s.size());
 			if(cmd_out[cur] == -2)
 			{
 				int i = 0;
@@ -280,7 +289,8 @@ int process_handler(int sock)
 			shmctl(shmid, IPC_RMID, NULL);
 			ln++;
 		}
-	}
+		return 1;
+//	}
 }
 
 int rl(int sock, char *cstr)
@@ -294,7 +304,7 @@ int rl(int sock, char *cstr)
 		{
 			if(c == '\n')
 			{
-			cstr[sum] = '\0';
+				cstr[sum] = '\0';
 				return sum;
 			}
 			else
@@ -307,8 +317,11 @@ int rl(int sock, char *cstr)
 	}
 }
 
-//to do 
-// pipe
-// fork
-// setenv
-// exit
+int greeting(int sock)
+{
+	cout << "Client connected: PID = " << getpid() << endl;
+	string greet = 	"****************************************\n"
+					"** Welcome to the information server. **\n"
+					"****************************************\n";
+	write(sock, greet.c_str(), greet.length());
+}

@@ -20,10 +20,13 @@ void waitfor(int sig)
 	int pid = wait(&wstat);
 }
 
+class indiv;
 //void abortion(int sig)
 //{
 //	abort();
 //}
+int concurrent_connection_oriented(int sock, struct sockaddr *cli_addr);
+int single_process_concurrent(int sock, struct sockaddr *cli_addr);
 
 int main()
 {
@@ -50,7 +53,9 @@ int main()
 	}
 	cout << "Bind port: " << serv_tcp_port << endl;
 	listen(sock, 5);
-	while(1)
+
+	concurrent_connection_oriented(sock, (struct sockaddr *) &cli_addr);
+/*	while(1)
 	{
 		unsigned int clilen = sizeof(cli_addr);
 		int newsock = accept(sock, (struct sockaddr *) &cli_addr, &clilen);
@@ -68,7 +73,69 @@ int main()
 		}
 
 		close(newsock);
+	}*/
+}
+
+int concurrent_connection_oriented(int sock, struct sockaddr *cli_addr)
+{
+	while(1)
+	{
+		unsigned int clilen = sizeof(cli_addr);
+		int newsock = accept(sock, cli_addr, &clilen);
+		int child;
+		if((child = fork()) < 0)
+		{
+			cout << "Error: Accept error" << endl;
+			return 0;
+		}
+		else if(child == 0) 
+		{
+			close(sock);
+			indiv user;
+			void *ptr = NULL;
+			greeting(newsock);
+			while(process_handler(newsock, user, ptr));
+			exit(0);
+		}
+		close(newsock);
+	}
+}
+/*
+int single_process_concurrent(int sock, struct sockaddr *cli_addr)
+{
+	fd_set rfds;
+	fd_set afds;
+	int nfds = getdtablesize();
+	FD_ZERO(&afds);
+	FD_SET(sock, &afds);
+	while(1)
+	{
+		memcpy(&rfds, &afds, sizeof(rfds));
+		if(select(nfds, &rfds, (fd_set *) NULL, (fd_set *) NULL, (struct timeval *) NULL) < 0)
+		{
+			cout << "Error: Select error" << endl;
+			return 0;
+		}
+		if(FD_ISSET(sock, &rfds))
+		{
+			unsigned int clilen = sizeof(cli_addr);
+			int newsock = accept(sock, cli_addr, &clilen);
+			if(newsock < 0)
+			{
+				cout << "Error: Accept error" << endl;
+				return 0;
+			}
+			FD_SET(newsock, &afds);
+		}
+		for(int i = 0; i < nfds; i++)
+		{
+			if(i == sock)break;
+			if(FD_ISSET(fd, &rfds))
+			{
+				
+			}
+		}
 	}
 }
 
-
+*/
