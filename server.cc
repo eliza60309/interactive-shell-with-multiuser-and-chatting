@@ -21,10 +21,7 @@ void waitfor(int sig)
 }
 
 class indiv;
-//void abortion(int sig)
-//{
-//	abort();
-//}
+
 int concurrent_connection_oriented(int sock, struct sockaddr *cli_addr);
 int single_process_concurrent(int sock, struct sockaddr *cli_addr);
 
@@ -54,26 +51,8 @@ int main()
 	cout << "Bind port: " << serv_tcp_port << endl;
 	listen(sock, 5);
 
+	//single_process_concurrent(sock, (struct sockaddr *) &cli_addr);
 	concurrent_connection_oriented(sock, (struct sockaddr *) &cli_addr);
-/*	while(1)
-	{
-		unsigned int clilen = sizeof(cli_addr);
-		int newsock = accept(sock, (struct sockaddr *) &cli_addr, &clilen);
-		int child;
-		if((child = fork()) < 0)
-		{
-			cout << "Error: Accept error" << endl;
-			return 0;
-		}
-		else if(child == 0) 
-		{
-			close(sock);
-			process_handler(newsock);
-			exit(0);
-		}
-
-		close(newsock);
-	}*/
 }
 
 int concurrent_connection_oriented(int sock, struct sockaddr *cli_addr)
@@ -94,13 +73,14 @@ int concurrent_connection_oriented(int sock, struct sockaddr *cli_addr)
 			indiv user;
 			void *ptr = NULL;
 			greeting(newsock);
-			while(process_handler(newsock, user, ptr));
+			write(newsock, "% ", 2);
+			while(process_handler(newsock, user, ptr))write(newsock, "% ", 2);
 			exit(0);
 		}
 		close(newsock);
 	}
 }
-/*
+
 int single_process_concurrent(int sock, struct sockaddr *cli_addr)
 {
 	fd_set rfds;
@@ -108,14 +88,25 @@ int single_process_concurrent(int sock, struct sockaddr *cli_addr)
 	int nfds = getdtablesize();
 	FD_ZERO(&afds);
 	FD_SET(sock, &afds);
+	vector<indiv> vect(30, indiv());
+	vector<int> defined(30, -1);//-1 not def
 	while(1)
 	{
 		memcpy(&rfds, &afds, sizeof(rfds));
-		if(select(nfds, &rfds, (fd_set *) NULL, (fd_set *) NULL, (struct timeval *) NULL) < 0)
+		while(select(nfds, &rfds, (fd_set *) NULL, (fd_set *) NULL, (struct timeval *) NULL) < 0)
 		{
-			cout << "Error: Select error" << endl;
-			return 0;
+			if(errno == EINTR);//cout << "EINTR: retry" << endl;
+			else
+			{
+				cout << "Error: Select error" << strerror(errno) << endl;
+				return 0;
+			}
 		}
+/*		if(selno < 0)
+		{
+			cout << "Error: Select error" << strerror(errno) << endl;
+			return 0;
+		}*/
 		if(FD_ISSET(sock, &rfds))
 		{
 			unsigned int clilen = sizeof(cli_addr);
@@ -126,16 +117,49 @@ int single_process_concurrent(int sock, struct sockaddr *cli_addr)
 				return 0;
 			}
 			FD_SET(newsock, &afds);
+			greeting(newsock);
+			write(newsock, "% ", 2);
+			for(int i = 0; i < 30; i++)
+			{
+				if(defined[i] == -1)
+				{
+					vect[i] = indiv();
+					defined[i] = newsock;
+					cout << "New socket(" << newsock << ") id(" << i + 1 << ")" << endl;
+					break;
+				}
+			}
 		}
 		for(int i = 0; i < nfds; i++)
 		{
-			if(i == sock)break;
-			if(FD_ISSET(fd, &rfds))
+			if(i == sock)continue;
+			if(!FD_ISSET(i, &rfds))continue;
+			int id = -1;
+			for(int j = 0; j < 30; j++)
 			{
-				
+				if(defined[j] == i)
+				{
+					id = j;
+					break;
+				}
 			}
+			if(id == -1)
+			{
+				cout << "Error: find" << endl;
+				break;
+			}
+			void *ptr = NULL;
+			int ret = process_handler(i, vect[id], ptr);
+			if(!ret)
+			{
+				defined[id] = -1;
+				vect[id] = indiv();
+				(void) close(i);
+				FD_CLR(i, &afds);
+			}
+			write(i, "% ", 2);
 		}
 	}
 }
 
-*/
+
