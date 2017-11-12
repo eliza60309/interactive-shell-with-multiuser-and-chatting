@@ -1,9 +1,0 @@
-removetag test.html |5
-removetag test.html | number > ls.txt
-removetag0 test.html |1
-number | number |3 cat ls.txt |2
-UNKNOWN_COMMAND!
-number
-ls -S |4 ls -S |3
-ls -S | number | cat
-exit
