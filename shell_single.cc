@@ -2,6 +2,7 @@
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/wait.h>
 #include <arpa/inet.h>
 #include <unistd.h>
@@ -30,12 +31,11 @@ class indiv
 	vector<int> cmd_out;
 	vector<string> cmd_in;
 	vector<bool> cmd_defined;
-	vector<bool> cmd_tmp;
+	vector<int> cmd_tmp;
 	vector<bool> cmd_stdin;
 	//string env;
 	vector<string> env_var;
 	vector<string> env_value;
-	string rawcmd;
 	int cur;
 	indiv()
 	{
@@ -43,11 +43,10 @@ class indiv
 		cmd_out = vector<int>(5000, -2);
 		cmd_in = vector<string>(5000, string());
 		cmd_defined = vector<bool>(5000, 0);
-		cmd_tmp = vector<bool>(5000, 0);
+		cmd_tmp = vector<int>(5000, 0);
 		cmd_stdin = vector<bool>(5000, 1);
 		env_var = vector<string>(1, "PATH");
 		env_value = vector<string>(1, "bin:.");
-		rawcmd = string();
 		cur = 0;
 	}
 };
@@ -58,32 +57,21 @@ int greeting(int sock);
 
 int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<string> &hstr, vector<string> &pstr)
 {
-/*	vector<vector<string> > cmd_args(5000, vector<string>());
-	vector<int> cmd_out(5000, -2);
-	vector<string> cmd_in(5000, string());
-	vector<bool> cmd_defined(5000, 0);
-	vector<bool> cmd_tmp(5000, 0);
-	vector<bool> cmd_stdin(5000, 1);
-	chdir("ras");
-	clearenv();
-	setenv("PATH", "bin:.", 1);
-	//setenv("PATH", );*/
+	// import user configuration
 	vector<vector<string> > &cmd_args = user.cmd_args;
 	vector<int> &cmd_out = user.cmd_out;
 	vector<string> &cmd_in = user.cmd_in;
 	vector<bool> &cmd_defined = user.cmd_defined;
-	vector<bool> &cmd_tmp = user.cmd_tmp;
+	vector<int> &cmd_tmp = user.cmd_tmp;
 	vector<bool> &cmd_stdin = user.cmd_stdin;
 	vector<string> &env_var = user.env_var;
 	vector<string> &env_value = user.env_value;
 	chdir("ras");
 	clearenv();
-	//setenv("PATH", "bin:.", 1);
 	for(int i = 0; i < env_var.size(); i++)setenv(env_var[i].c_str(), env_value[i].c_str(), 1);
 	int &cur = user.cur;
-//	while(1)//per line operation
-//	{	
-	int forks = 0;
+
+	// get command 
 	char c[10000] = {};
 	int size = rl(sock, c);
 	if(size == -1)return 0;
@@ -101,26 +89,46 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			return 0;
 		}
 	}
+	char last = '\0';
+	for(int i = 0;; i++)
+	{
+		if(c[i] <= 0)break;
+		if(c[i] == '\r' || c[i] == '\n');
+		else last = c[i];
+	}
+	// parsing token
 	vector<string> toks;
 	char *tok = NULL;
 	tok = strtok(c, " \r\n\0");
 	if(tok == NULL)return 1;
+	int msgflg = 0;
+/*	do
+	{
+		string token(tok);
+		toks.push_back(token);
+		if(token == "tell")msgflg = 1;
+		else if(token == "yell")msgflg = 2;
+	}
+	while(1)
+	{
+		if(msgflg == 2)tok = strtok(NULL, "\r\n\0");
+		else if(msgflg == 1)msgflg = 2;
+		else if((tok = strtok(NULL, " \r\n\0")) == NULL)break;
+		if(tok == NULL)break;
+		string token(tok);
+		toks.push_back(token);
+	}*/
 	do toks.push_back(string(tok));
 	while((tok = strtok(NULL, " \r\n\0")) != NULL);
-	string tmp;
 	vector<string> rawargs;
 	int fur = 0;
-	int cmds = 0;
+	string raw_cmd = "";
+	string disfist = "";
 	for(int i = 0; i < toks.size(); i++)//token operation
 	{
-		if(toks[i] == "exit")
-		{
-			cout << "Client Released: PID = " << getpid() << endl;
-			return 0;
-		}
+		raw_cmd = raw_cmd + (i == 0? "": " ") + toks[i];
 		if(toks[i].find('|') != -1)
 		{
-			tmp = "";
 			int cnt = 0;
 			for(int j = 1; j < toks[i].size(); j++)
 			{
@@ -132,9 +140,9 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			cmd_out[(fur + cur) % 5000] = (cnt + fur + cur) % 5000;
 			cmd_defined[(fur + cur) % 5000] = 1;
 			cmd_tmp[(fur + cur) % 5000] = 1;
+			if(fur == 0)cmd_tmp[(fur + cur) % 5000] = 2;
 			rawargs.clear();
 			fur++;
-			cmds++;
 			continue;
 		}
 		rawargs.push_back(toks[i]);
@@ -145,14 +153,19 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 		cmd_out[(fur + cur) % 5000] = -2;
 		cmd_defined[(fur + cur) % 5000] = 1;
 		cmd_tmp[(fur + cur) % 5000] = 1;
+		if(fur == 0)cmd_tmp[(fur + cur) % 5000] = 2;
 		fur++;
-		cmds++;
 		rawargs.clear();
 	}
-	int ln = 0;
+	// command execution
 	while(1)
 	{
 		if(cmd_defined[cur] == 0)break;
+		if(cmd_args[cur][0] == "exit")
+		{
+			cout << "Client Released: PID = " << getpid() << endl;
+			return 0;
+		}
 		if(cmd_args[cur][0] == "setenv")
 		{
 			setenv(cmd_args[cur][1].c_str(), cmd_args[cur][2].c_str(), 1);
@@ -185,7 +198,7 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 		}
 		if(cmd_args[cur][0] == "who")
 		{
-			string str("<id>\t<nickname>\t<IP/port>\t<indicate me>\n");
+			string str("<ID>\t<nickname>\t<IP/port>\t<indicate me>\n");
 			for(int i = 0; i < fd.size(); i++)
 			{
 				if(fd[i] != -1)
@@ -194,8 +207,8 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 					sprintf(b, "%d", i + 1);
 					str = str + b + "\t";
 					str = str + (ptr + NAME_OFFSET + i * 30) + "\t";
-					str = str + hstr[i] + "/" + pstr[i] + "\t";
-					if(fd[i] == sock)str = str + "<-me";
+					str = str + hstr[i] + "/" + pstr[i];
+					if(fd[i] == sock)str = str + "\t<-me";
 					str = str + "\n";
 				}
 			}
@@ -214,7 +227,7 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 					if(str == cmd_args[cur][1])
 					{
 						string str2;
-						str2 = str2 + "*** User " + cmd_args[cur][1] + " already exists. ***\n";
+						str2 = str2 + "*** User '" + cmd_args[cur][1] + "' already exists. ***\n";
 						write(sock, str2.c_str(), str2.size());
 						rename_fail = true;
 						break;
@@ -252,8 +265,8 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			{
 				string str;
 				char b[10] = {};
-				sprintf(b, "%d", target - 1);
-				str = str + "*** Error: user #" + b + " does not exist yet.";
+				sprintf(b, "%d", target);
+				str = str + "*** Error: user #" + b + " does not exist yet. ***\n";
 				write(sock, str.c_str(), str.size());
 				return 1;
 			}
@@ -261,8 +274,9 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			str = str + "*** " + (ptr + NAME_OFFSET + id * 30) + " told you ***:";
 			for(int i = 2; i < cmd_args[cur].size(); i++)
 			{
-				str = str + cmd_args[cur][i] + " ";
+				str = str + " " + cmd_args[cur][i];
 			}
+			if(last == ' ')str += ' ';
 			str += "\n";
 			write(fd[target - 1], str.c_str(), str.size());
 			return 1;
@@ -275,12 +289,14 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			str = str + "*** " + (ptr + NAME_OFFSET + id * 30) + " yelled ***:";
 			for(int i = 1; i < cmd_args[cur].size(); i++)
 			{
-				str = str + cmd_args[cur][i] + " ";
+				str = str + " " + cmd_args[cur][i];
 			}
+			if(last == ' ')str += ' ';
 			str += "\n";
 			for(int i = 0; i < fd.size(); i++)
 			{
-				if(fd[i] != -1 && i != id)write(fd[i], str.c_str(), str.size());
+			//	if(fd[i] != -1 && i != id)write(fd[i], str.c_str(), str.size());
+				if(fd[i] != -1)write(fd[i], str.c_str(), str.size());
 			}
 			return 1;
 		}
@@ -291,7 +307,8 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			env = cmd_args[cur][1] + "=" + env + "\n";
 			write(sock, env.c_str(), env.size());
 			cur++;
-			break;
+			return 1;
+			//break;
 		}
 		int tochild[2];//1 for in and 0 for out
 		int fromchild[2];
@@ -301,6 +318,130 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 		pipe(errchild);
 		vector<char *>argc;
 		string file = "";
+		//////////////
+		
+		
+		// <#
+		if(cmd_args[cur].size() >= 2)
+		{
+			int cnt = 0;
+			string pipetofile = "wush60309-";
+			for(int i = 0; i < cmd_args[cur].size(); i++)
+			{
+				if(cmd_args[cur][i].find('<') == 0 && cmd_args[cur][i].size() != 1)
+				{
+					for(int j = 1; j < cmd_args[cur][i].size(); j++)
+					{
+						cnt *= 10;
+						cnt += cmd_args[cur][i][j] - '0';
+					}
+					vector<string> tmpvect;
+					for(int j = 0; j < cmd_args[cur].size(); j++)
+					{
+						if(i == j);
+						else tmpvect.push_back(cmd_args[cur][j]);
+					}
+					cmd_args[cur] = tmpvect;
+					break;
+				}
+			}
+			if(cnt != 0)
+			{
+				char b[10] = {};
+				sprintf(b, "%d-%d", cnt, id + 1);
+				string str;
+				str = "/tmp/" + pipetofile + b;
+				struct stat exist;
+				if(stat(str.c_str(), &exist) != 0)
+				{
+					str = "";
+					char c[10] = {};
+					sprintf(c, "#%d->#%d", cnt, id + 1);
+					str = str + "*** Error: the pipe " + c + " does not exist yet. ***\n";
+					write(sock, str.c_str(), str.size());
+					return 1;
+				}
+				else
+				{
+					char c[10] = {}, d[10] = {};
+					sprintf(c, "%d", id + 1);
+					sprintf(d, "%d", cnt);
+					fstream in(str.c_str());
+					string input;
+					input.assign(istreambuf_iterator<char>(in), istreambuf_iterator<char>());
+					cmd_in[cur] += input;
+					in.close();
+					remove(str.c_str());
+					string msg;
+					msg = string() + "*** " + (ptr + NAME_OFFSET + id * 30) + " (#" + c + ") just received from " + (ptr + NAME_OFFSET + (cnt - 1) * 30) + " (#" + d + ") by '" + raw_cmd + "' ***\n";
+					for(int i = 0; i < fd.size(); i++)write(fd[i], msg.c_str(), msg.size());
+				}
+			}
+		}
+		
+		// >#
+		if(cmd_args[cur].size() >= 2)
+		{
+			int cnt = 0;
+			string pipetofile = "wush60309-";
+			for(int i = 0; i < cmd_args[cur].size(); i++)
+			{
+				if(cmd_args[cur][i].find('>') == 0 && cmd_args[cur][i].size() != 1)
+				{
+					for(int j = 1; j < cmd_args[cur][i].size(); j++)
+					{
+						cnt *= 10;
+						cnt += cmd_args[cur][i][j] - '0';
+					}
+					if(fd[cnt - 1] == -1)
+					{
+						string str;
+						char b[10] = {};
+						sprintf(b, "%d", cnt);
+						str = str + "*** Error: user #" + b + " does not exist yet. ***\n";
+						write(sock, str.c_str(), str.size());
+						return 1;
+					}
+					vector<string> tmpvect;
+					for(int j = 0; j < cmd_args[cur].size(); j++)
+					{
+						if(i == j);
+						else tmpvect.push_back(cmd_args[cur][j]);
+					}
+					cmd_args[cur] = tmpvect;
+					break;
+				}
+			}
+			if(cnt != 0)
+			{
+				char b[10] = {};
+				sprintf(b, "%d-%d", id + 1, cnt);
+				string str;
+				str = "/tmp/" + pipetofile + b;
+				struct stat exist;
+				if(stat(str.c_str(), &exist) == 0)
+				{
+					char c[10] = {};
+					sprintf(c, "#%d->#%d", id + 1, cnt);
+					str = string() + "*** Error: the pipe " + c + " already exists. ***\n";
+					write(sock, str.c_str(), str.size());
+					return 1;
+				}
+				else
+				{
+					file = str;
+					cmd_out[cur] = -3;
+					char c[10] = {}, d[10] = {};
+					string msg;
+					sprintf(c, "%d", id + 1);
+					sprintf(d, "%d", cnt);
+					msg = string() + "*** " + (ptr + NAME_OFFSET + id * 30) + " (#" + c + ") just piped '" + raw_cmd + "' to " + (ptr + NAME_OFFSET + (cnt - 1) * 30) + " (#" + d + ") ***\n";
+					for(int i = 0; i < fd.size(); i++)write(fd[i], msg.c_str(), msg.size());
+				}
+			}
+		}
+
+		// > file
 		if(cmd_args[cur].size() >= 2 && cmd_args[cur][cmd_args[cur].size() - 2] == ">")
 		{
 			file = cmd_args[cur][cmd_args[cur].size() - 1];
@@ -308,16 +449,18 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			cmd_args[cur].pop_back();
 			cmd_out[cur] = -1;
 		}
+
+
 		for(int i = 0; i < cmd_args[cur].size(); i++)argc.emplace_back(const_cast<char *>(cmd_args[cur][i].c_str()));
 		argc.push_back(NULL);
-		/*
 		cout << "Execute(" << cur << "): ";
 		for(int i = 0; i < argc.size() - 1; i++)cout << argc[i] << " ";
 		if(cmd_out[cur] == -1)cout << "=>(file) " << file;
 		else if(cmd_out[cur] == -2)cout << "=>(stdout)";
 		else cout << "=>(pipe) " << cmd_out[cur];
 		cout << endl;
-		*/
+
+
 		int shmid = shmget(0, sizeof(int), IPC_CREAT | 0666);
 		int *ptr = (int *)shmat(shmid, NULL, 0);
 		ptr[0] = 1;
@@ -329,7 +472,7 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 		}
 		if(p == 0)
 		{
-			if(cmd_out[cur] == -1)
+			if(cmd_out[cur] == -1 || cmd_out[cur] == -3)
 			{
 				fstream stream;
 				stream.open(file.c_str(), fstream::out);
@@ -346,7 +489,6 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 				write(sock, err.c_str(), err.size());
 				ptr[0] = 0;
 				shmdt(ptr);
-/////////////////////
 				exit(0);
 			}
 		}
@@ -361,7 +503,15 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 		read(errchild[0], errbuffer, 100000);
 		string s(pipebuffer);
 		string err(errbuffer);
-		write(sock, err.c_str(), err.size());
+		if(cmd_out[cur] == -3)
+		{
+			fstream stream;
+			stream.open(file.c_str(), fstream::out);
+			stream << s << err;
+			cout << "PIPED" << s << err << endl;
+			stream.close();
+		}
+		else write(sock, err.c_str(), err.size());
 		if(cmd_out[cur] == -2)
 		{
 			int i = 0;
@@ -379,13 +529,19 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			stream << s;
 			stream.close();
 		}
+		else if(cmd_out[cur] == -3);
 		else cmd_in[cmd_out[cur]] += s;
 		close(fromchild[0]);
 		string save = "";
+
+
+		// if execution error
+		int flag = false;
 		if(!ptr[0]) 
 		{
 			cout << "Exec error: " << argc.data()[0] << endl;
-			if(ln)save = cmd_in[cur] + cmd_in[cur + 1];
+			if(cmd_tmp[cur] != 2)save = cmd_in[cur] + cmd_in[cur + 1];
+			else flag = true;
 			for(int i = 0; i < 5000; i++)
 			{
 				if(cmd_tmp[i])
@@ -398,6 +554,7 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 				}
 			}
 		}
+		//command done
 		cmd_args[cur].clear();
 		cmd_defined[cur] = 0;
 		cmd_out[cur] = -2;
@@ -405,10 +562,9 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 		cmd_stdin[cur] = 1;
 		cmd_tmp[cur] = 0;
 		if(ptr[0])cur = (cur + 1) % 5000;
-		else if(!ln)cur = (cur + 1) % 5000;
+		else if(flag)cur = (cur + 1) % 5000;
 		shmdt(ptr);
 		shmctl(shmid, IPC_RMID, NULL);
-		ln++;
 	}
 	return 1;
 }

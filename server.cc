@@ -201,6 +201,19 @@ int single_process_concurrent(int sock, struct sockaddr *cli_addr)
 				(void) close(i);
 				FD_CLR(i, &afds);
 				memset(ptr + NAME_OFFSET + 30 * id, 0, 30);
+				for(int i = 1; i < 31; i++)
+				{
+					char b[10] = {};
+					sprintf(b, "%d-%d", i, id + 1);
+					string str;
+					str = "/tmp/wush60309-" + string(b);
+					struct stat exist;
+					if(stat(str.c_str(), &exist) == 0)
+					{
+						remove(str.c_str());
+						cout << "removed" << str << endl;
+					}
+				}
 				memset(ptr + PIPE_OFFSET + 1024 * 30 * id, 0, 1024 * 30);
 			}
 			else write(i, "% ", 2);
