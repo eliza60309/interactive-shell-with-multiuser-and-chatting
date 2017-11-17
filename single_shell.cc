@@ -492,7 +492,6 @@ int process_handler(int sock, indiv &user, char *ptr, vector<int> &fd, vector<st
 			fstream stream;
 			stream.open(file.c_str(), fstream::out);
 			stream << s << err;
-			cout << "PIPED" << s << err << endl;
 			stream.close();
 		}
 		else write(sock, err.c_str(), err.size());

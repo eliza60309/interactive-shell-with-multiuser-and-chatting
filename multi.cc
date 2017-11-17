@@ -44,7 +44,7 @@ int readint(char *c);
 void waitfor(int sig);
 void rcvmsg(int sig);
 int broadcast(const char *c);
-int wisper(int id, char *c);
+int wisper(int id, const char *c);
 void waitterm(int sig);
 int rstmmry(char *c, int size);
 int writeint(char *c, int i);
@@ -52,6 +52,7 @@ void abortion(int sig);
 int writemsg(char *c, const char *str);
 int writemmry(char *c, const char *str);
 string readmmry(char *c);
+int cleanup();
 
 char *ptr;
 int mysock;
@@ -60,9 +61,6 @@ int shmid;
 
 int main()
 {
-	signal(SIGCHLD, waitfor);
-	signal(SIGTERM, abortion);
-	signal(SIGINT, abortion);
 	int serv_tcp_port = SERV_TCP_PORT;
 	struct sockaddr_in cli_addr, serv_addr;
 	int sock = socket(PF_INET, SOCK_STREAM, 0);
@@ -93,6 +91,11 @@ int concurrent_connection_oriented(int sock, struct sockaddr *cli_addr)
 	shmid = shmget(0, SHM_SIZE, IPC_CREAT | 0666);
 	cout << "[LOG] SHMID = " << shmid << endl;
 	ptr = (char *)shmat(shmid, NULL, 0);
+//	int ret = fork();
+//	if(ret == 0)cleanup();
+	signal(SIGCHLD, waitfor);
+	signal(SIGTERM, abortion);
+	signal(SIGINT, abortion);
 	memset(ptr, 0, SHM_SIZE);
 	while(1)
 	{
@@ -113,12 +116,53 @@ int concurrent_connection_oriented(int sock, struct sockaddr *cli_addr)
 			close(sock);
 			for(int i = 0; i < 30; i++)
 			{
+				//if((ptr + MSGSIGN_OFFSET)[i] == 0 && (ptr + PROCID_OFFSET + i * PROCID)[0] != 0)
+				if((ptr + MSGSIGN_OFFSET)[i] == 0)
+				{
+				//	cout << "[LOG] User " << i + 1 << " disconnected." << endl;
+					(ptr + MSGSIGN_OFFSET)[i] = 1;
+					cout << "[LOG] User " << i + 1 << " (" << getpid() << ") connected." << endl;
+					rstmmry(ptr + FDID_OFFSET + i * FDID, FDID);
+					rstmmry(ptr + PROCID_OFFSET + i * PROCID, PROCID);
+					rstmmry(ptr + NAME_OFFSET + i * NAME, NAME);
+					rstmmry(ptr + PIPE_OFFSET + i * PIPE, PIPE);
+					for(int j = 1; j < 31; j++)
+					{
+						char b[10] = {};
+						sprintf(b, "%d-%d", j, i + 1);
+						string str;
+						str = "/tmp/_wush60309-" + string(b);
+						struct stat exist;
+						if(stat(str.c_str(), &exist) == 0)
+						{
+							remove(str.c_str());
+							cout << "removed" << str << endl;
+						}
+					}
+			/*	}
 				if((ptr + PROCID_OFFSET + i * PROCID)[0] == 0)
 				{
-					cout << "[LOG] User " << i + 1 << " (" << getpid() << ") connected." << endl;
+					rstmmry(ptr + FDID_OFFSET + i * FDID, FDID);
+					rstmmry(ptr + PROCID_OFFSET + i * PROCID, PROCID);
+					rstmmry(ptr + NAME_OFFSET + i * NAME, NAME);
+					rstmmry(ptr + PIPE_OFFSET + i * PIPE, PIPE);
+					for(int j = 1; j < 31; j++)
+					{
+						char b[10] = {};
+						sprintf(b, "%d-%d", j, i + 1);
+						string str;
+						str = "/tmp/_wush60309-" + string(b);
+						struct stat exist;
+						if(stat(str.c_str(), &exist) == 0)
+						{
+							remove(str.c_str());
+							cout << "removed" << str << endl;
+						}
+					}*/
 					myid = i;
 					mysock = newsock;
 					writeint(ptr + PROCID_OFFSET + i * PROCID, getpid());
+					(ptr + MSGSIGN_OFFSET)[i] = 1;
 					greeting(newsock);
 					broadcast("*** User '(no name)' entered from CGILAB/511. ***\n");
 					writemmry(ptr + NAME_OFFSET + i * NAME, "(no name)");
@@ -133,6 +177,8 @@ int concurrent_connection_oriented(int sock, struct sockaddr *cli_addr)
 				if(ret == 0)
 				{
 					string str = string() + "*** User '" + (ptr + NAME_OFFSET + NAME * myid) + "' left. ***\n";
+					cout << "[LOG] User " << myid + 1 << " disconnected." << endl;
+					(ptr + MSGSIGN_OFFSET)[myid] = 0;
 					broadcast(str.c_str());
 					close(newsock);
 					exit(0);
@@ -233,21 +279,37 @@ void waitfor(int sig)
 {
 	int wstat;
 	int pid = wait(&wstat);
-	for(int i = 0; i < 30; i++)
+}
+
+int cleanup()
+{
+	while(1)
 	{
-		int gpid = readint(ptr + PROCID_OFFSET + i * PROCID);
-		if(gpid == -1);
-		else if(gpid == pid)
+		for(int i = 0; i < 30; i++)
 		{
-			cout << "[LOG] User " << i + 1 << " (" << pid << ") disconnected." << endl;
-			rstmmry(ptr + FDID_OFFSET + i * FDID, FDID);
-			rstmmry(ptr + PROCID_OFFSET + i * PROCID, PROCID);
-			rstmmry(ptr + NAME_OFFSET + i * NAME, NAME);
-			rstmmry(ptr + PIPE_OFFSET + i * PIPE, PIPE);
-			return;
+			if((ptr + MSGSIGN_OFFSET)[i] == 0 && (ptr + PROCID_OFFSET + i * PROCID)[0] != 0)
+			{
+				cout << "[LOG] User " << i + 1 << " disconnected." << endl;
+				rstmmry(ptr + FDID_OFFSET + i * FDID, FDID);
+				rstmmry(ptr + PROCID_OFFSET + i * PROCID, PROCID);
+				rstmmry(ptr + NAME_OFFSET + i * NAME, NAME);
+				rstmmry(ptr + PIPE_OFFSET + i * PIPE, PIPE);
+				for(int j = 1; j < 31; j++)
+				{
+					char b[10] = {};
+					sprintf(b, "%d-%d", j, i + 1);
+					string str;
+					str = "/tmp/_wush60309-" + string(b);
+					struct stat exist;
+					if(stat(str.c_str(), &exist) == 0)
+					{
+						remove(str.c_str());
+						cout << "removed" << str << endl;
+					}
+				}
+			}
 		}
 	}
-	cout << "[WRN] Clean " << " (" << pid << ") failed." << endl;
 }
 
 void rcvmsg(int sig)
@@ -279,7 +341,7 @@ int broadcast(const char *c)
 	return 1;
 }
 
-int wisper(int id, char *c)
+int wisper(int id, const char *c)
 {
 	/*for(int i = 0; i < MSG_SIZE - 1; i++)
 	{

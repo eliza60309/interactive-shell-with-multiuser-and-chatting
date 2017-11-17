@@ -1,4 +1,5 @@
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <sys/socket.h>
@@ -43,7 +44,7 @@ int readint(char *c);
 void waitfor(int sig);
 void rcvmsg(int sig);
 int broadcast(const char *c);
-int wisper(int id, char *c);
+int wisper(int id, const char *c);
 void waitterm(int sig);
 int rstmmry(char *c, int size);
 int writeint(char *c, int i);
@@ -108,6 +109,13 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 		if(c[i] == '/')return 1;
 		if(c[i] < 0)return 0;
 	}
+	char last = '\0';
+	for(int i = 0;; i++)
+	{
+		if(c[i] <= 0)break;
+		if(c[i] == '\r' || c[i] == '\n');
+		else last = c[i];
+	}
 	vector<string> toks;
 	char *tok = NULL;
 	tok = strtok(c, " \r\n\0");
@@ -118,8 +126,10 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 	vector<string> rawargs;
 	int fur = 0;
 	int cmds = 0;
+	string raw_cmd;
 	for(int i = 0; i < toks.size(); i++)//token operation
 	{
+		raw_cmd = raw_cmd + (i == 0? "": " ") + toks[i];
 		if(toks[i].find('|') != -1)
 		{
 			tmp = "";
@@ -181,17 +191,18 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 		//who
 		if(cmd_args[cur][0] == "who")
 		{
-			string str("<id>\t<nickname>\t<IP/port>\t<indicate me>\n");
+			string str("<ID>\t<nickname>\t<IP/port>\t<indicate me>\n");
 			for(int i = 0; i < 30; i++)
 			{
-				if(readint(ptr + PROCID_OFFSET + PROCID * i) != -1)
+				//if(readint(ptr + PROCID_OFFSET + PROCID * i) != -1)
+				if((ptr + MSGSIGN_OFFSET)[i])
 				{
 					char b[10] = {};
 					sprintf(b, "%d", i + 1);
 					str = str + b + "\t";
 					str = str + (ptr + NAME_OFFSET + i * NAME) + "\t";
-					str = str + "CGILAB/511\t";
-					if(myid == i)str = str + "<-me";
+					str = str + "CGILAB/511";
+					if(myid == i)str = str + "\t<-me";
 					str = str + "\n";
 				}
 			}
@@ -220,8 +231,54 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 			broadcast(str2.c_str());
 			return 1;
 		}
+		
+		//tell
+		if(cmd_args[cur][0] == "tell")
+		{
+			int target = 0;
+			if(cmd_args[cur].size() <= 2)return 1;
+			for(int i = 0; i < cmd_args[cur][1].size(); i++)
+			{
+				target *= 10;
+				target += cmd_args[cur][1][i] - '0';
+			}
+		//	if(target == 0 ||  readint(ptr + PROCID_OFFSET + PROCID * (target - 1)) != -1)
+			if(target == 0 || (ptr + MSGSIGN_OFFSET)[target - 1] == 0)
+			{
+				string str;
+				char b[10] = {};
+				sprintf(b, "%d", target);
+				str = str + "*** Error: user #" + b + " does not exist yet. ***\n";
+				write(sock, str.c_str(), str.size());
+				return 1;
+			}
+			string str;
+			str = str + "*** " + (ptr + NAME_OFFSET + myid * NAME) + " told you ***:";
+			for(int i = 2; i < cmd_args[cur].size(); i++)
+			{
+				str = str + " " + cmd_args[cur][i];
+			}
+			if(last == ' ')str += ' ';
+			str += "\n";
+			wisper(target - 1, str.c_str());
+			return 1;
+		}
 
-
+		if(cmd_args[cur][0] == "yell")
+		{
+			string str;
+			if(cmd_args[cur].size() <= 1)return 1;
+			str = str + "*** " + (ptr + NAME_OFFSET + myid * NAME) + " yelled ***:";
+			for(int i = 1; i < cmd_args[cur].size(); i++)
+			{
+				str = str + " " + cmd_args[cur][i];
+			}
+			if(last == ' ')str += ' ';
+			str += "\n";
+			broadcast(str.c_str());
+			return 1;
+		}
+		
 		//printenv
 		if(cmd_args[cur][0] == "printenv")
 		{
@@ -240,6 +297,133 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 		pipe(errchild);
 		vector<char *>argc;
 		string file = "";
+
+
+		
+		// <#
+		if(cmd_args[cur].size() >= 2)
+		{
+			int cnt = 0;
+			string pipetofile = "_wush60309-";
+			for(int i = 0; i < cmd_args[cur].size(); i++)
+			{
+				if(cmd_args[cur][i].find('<') == 0 && cmd_args[cur][i].size() != 1)
+				{
+					for(int j = 1; j < cmd_args[cur][i].size(); j++)
+					{
+						cnt *= 10;
+						cnt += cmd_args[cur][i][j] - '0';
+					}
+					vector<string> tmpvect;
+					for(int j = 0; j < cmd_args[cur].size(); j++)
+					{
+						if(i == j);
+						else tmpvect.push_back(cmd_args[cur][j]);
+					}
+					cmd_args[cur] = tmpvect;
+					break;
+				}
+			}
+			if(cnt != 0)
+			{
+				char b[10] = {};
+				sprintf(b, "%d-%d", cnt, myid + 1);
+				string str;
+				str = "/tmp/" + pipetofile + b;
+				struct stat exist;
+				if(stat(str.c_str(), &exist) != 0)
+				{
+					str = "";
+					char c[10] = {};
+					sprintf(c, "#%d->#%d", cnt, myid + 1);
+					str = str + "*** Error: the pipe " + c + " does not exist yet. ***\n";
+					write(sock, str.c_str(), str.size());
+					return 1;
+				}
+				else
+				{
+					char c[10] = {}, d[10] = {};
+					sprintf(c, "%d", myid + 1);
+					sprintf(d, "%d", cnt);
+					fstream in(str.c_str());
+					string input;
+					input.assign(istreambuf_iterator<char>(in), istreambuf_iterator<char>());
+					cmd_in[cur] += input;
+					in.close();
+					remove(str.c_str());
+					string msg;
+					msg = string() + "*** " + (ptr + NAME_OFFSET + myid * NAME) + " (#" + c + ") just received from " + (ptr + NAME_OFFSET + (cnt - 1) * NAME) + " (#" + d + ") by '" + raw_cmd + "' ***\n";
+					broadcast(msg.c_str());
+				}
+			}
+		}
+
+		// >#
+		if(cmd_args[cur].size() >= 2)
+		{
+			int cnt = 0;
+			string pipetofile = "_wush60309-";
+			for(int i = 0; i < cmd_args[cur].size(); i++)
+			{
+				if(cmd_args[cur][i].find('>') == 0 && cmd_args[cur][i].size() != 1)
+				{
+					for(int j = 1; j < cmd_args[cur][i].size(); j++)
+					{
+						cnt *= 10;
+						cnt += cmd_args[cur][i][j] - '0';
+					}
+					//if(cnt == 0 ||  readint(ptr + PROCID_OFFSET + PROCID * (cnt - 1)) != -1)
+					if(cnt == 0 || (ptr + MSGSIGN_OFFSET)[cnt - 1] == 0)
+					{
+						string str;
+						char b[10] = {};
+						sprintf(b, "%d", cnt);
+						str = str + "*** Error: user #" + b + " does not exist yet. ***\n";
+						write(sock, str.c_str(), str.size());
+						return 1;
+					}
+					vector<string> tmpvect;
+					for(int j = 0; j < cmd_args[cur].size(); j++)
+					{
+						if(i == j);
+						else tmpvect.push_back(cmd_args[cur][j]);
+					}
+					cmd_args[cur] = tmpvect;
+					break;
+				}
+			}
+			if(cnt != 0)
+			{
+				char b[10] = {};
+				sprintf(b, "%d-%d", myid + 1, cnt);
+				string str;
+				str = "/tmp/" + pipetofile + b;
+				struct stat exist;
+				if(stat(str.c_str(), &exist) == 0)
+				{
+					char c[10] = {};
+					sprintf(c, "#%d->#%d", myid + 1, cnt);
+					str = string() + "*** Error: the pipe " + c + " already exists. ***\n";
+					write(sock, str.c_str(), str.size());
+					return 1;
+				}
+				else
+				{
+					file = str;
+					cmd_out[cur] = -3;
+					char c[10] = {}, d[10] = {};
+					string msg;
+					sprintf(c, "%d", myid + 1);
+					sprintf(d, "%d", cnt);
+					msg = string() + "*** " + (ptr + NAME_OFFSET + myid * NAME) + " (#" + c + ") just piped '" + raw_cmd + "' to " + (ptr + NAME_OFFSET + (cnt - 1) * NAME) + " (#" + d + ") ***\n";
+					broadcast(msg.c_str());
+				}
+			}
+		}
+
+
+
+
 		if(cmd_args[cur].size() >= 2 && cmd_args[cur][cmd_args[cur].size() - 2] == ">")
 		{
 			file = cmd_args[cur][cmd_args[cur].size() - 1];
@@ -268,6 +452,12 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 		}
 		if(p == 0)
 		{
+			if(cmd_out[cur] == -1 || cmd_out[cur] == -3)
+			{
+				fstream stream;
+				stream.open(file.c_str(), fstream::out);
+				stream.close();
+			}
 			close(tochild[1]);
 			close(fromchild[0]);
 			dup2(tochild[0], 0);//0 for stdin
@@ -279,7 +469,6 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 				write(sock, err.c_str(), err.size());
 				ptr[0] = 0;
 				shmdt(ptr);
-/////////////////////
 				exit(0);
 			}
 		}
@@ -294,7 +483,14 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 		read(errchild[0], errbuffer, 100000);
 		string s(pipebuffer);
 		string err(errbuffer);
-		write(sock, err.c_str(), err.size());
+		if(cmd_out[cur] == -3)
+		{
+			fstream stream;
+			stream.open(file.c_str(), fstream::out);
+			stream << s << err;
+			stream.close();
+		}
+		else write(sock, err.c_str(), err.size());
 		if(cmd_out[cur] == -2)
 		{
 			int i = 0;
@@ -311,6 +507,7 @@ int process_handler(int sock, indiv &user, char *ptr, int myid)//, vector<int> &
 			stream.open(file.c_str(), fstream::out);
 			stream << s;
 		}
+		else if(cmd_out[cur] == -3);
 		else cmd_in[cmd_out[cur]] += s;
 		close(fromchild[0]);
 		string save = "";
@@ -371,7 +568,6 @@ int rl(int sock, char *cstr)
 
 int greeting(int sock)
 {
-	cout << "Client connected: PID = " << getpid() << endl;
 	string greet = 	"****************************************\n"
 					"** Welcome to the information server. **\n"
 					"****************************************\n";
